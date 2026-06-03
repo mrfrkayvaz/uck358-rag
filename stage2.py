@@ -113,11 +113,23 @@ def save_resources(resources: dict, chapter_num: int) -> dict[str, str]:
     
     mapping = {}
     for filename, data in resources.items():
-        # Marker resource'ları "image_0.png", "table_0.png" şeklinde isimlendirir
         ext = Path(filename).suffix if Path(filename).suffix else ".png"
         dest_name = f"{filename}"
         dest_path = asset_dir / dest_name
-        dest_path.write_bytes(data)
+
+        # Marker yeni sürümlerde PIL Image objesi döndürür, eski sürümlerde bytes
+        if isinstance(data, bytes):
+            dest_path.write_bytes(data)
+        else:
+            # PIL Image → bytes
+            from io import BytesIO
+            buf = BytesIO()
+            # Format belirle
+            fmt = ext.lstrip(".").upper() if ext else "PNG"
+            if fmt == "JPG":
+                fmt = "JPEG"
+            data.save(buf, format=fmt)
+            dest_path.write_bytes(buf.getvalue())
         
         # Göreceli yol (markdown içinde kullanılacak)
         rel_path = f"../assets/chapter{chapter_num}/{dest_name}"
