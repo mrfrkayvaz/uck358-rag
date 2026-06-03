@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-lora2.py — Qwen3:1.7B modelini LoRA ile fine-tune eder.
+lora2.py — Qwen2.5:1.5B modelini LoRA ile fine-tune eder.
 
 Veri Formatı (JSONL — Unsloth uyumlu):
-    lora/q_a/qa_dataset.jsonl
+    dataset/dataset.jsonl
     Her satır: {"question", "answer", "chapter_title", "heading_title", "chunk_path"}
     - Tüm formüller $ veya $$ arasında (LaTeX)
     - Cevap uzunluğu 200-600 karakter arası
@@ -104,7 +104,7 @@ def suggest_batch_size(vram_gb: float, base_batch: int = 4) -> tuple[int, int]:
 @dataclass
 class TrainingConfig:
     # Model
-    model_name: str = "Qwen/Qwen3-1.7B"
+    model_name: str = "Qwen/Qwen2.5-1.5B-Instruct"
     use_4bit: bool = True
     bnb_4bit_compute_dtype: str = "bfloat16"  # bf16 > fp16 > fp32
     bnb_4bit_quant_type: str = "nf4"          # nf4 > fp4
@@ -123,7 +123,7 @@ class TrainingConfig:
     lora_bias: str = "none"                    # "none", "all", "lora_only"
 
     # Dataset
-    data_file: str = "lora/q_a/qa_dataset.jsonl"  # JSONL format
+    data_file: str = "dataset/dataset.jsonl"  # JSONL format
     max_seq_length: int = 2048
     train_test_split: float = 0.9              # 90% train, 10% test
     num_workers: int = 4
@@ -148,7 +148,7 @@ class TrainingConfig:
     metric_for_best_model: str = "eval_loss"
     greater_is_better: bool = False
     fp16: bool = False
-    bf16: bool = True                          # Qwen3 bf16 ile eğitilmiş
+    bf16: bool = True                          # Qwen2.5 bf16 ile eğitilmiş
     optim: str = "adamw_8bit"                  # 8-bit AdamW (bellek tasarrufu)
     seed: int = 42
     dataloader_pin_memory: bool = True         # GPU'ya veri aktarımını hızlandırır
@@ -238,11 +238,11 @@ def load_qa_dataset_jsonl(filepath: str) -> list[dict]:
 
 
 # ──────────────────────────────────────────────────────────
-# VERİ FORMATLAMA (Qwen3 Chat Template)
+# VERİ FORMATLAMA (Qwen2.5 Chat Template)
 # ──────────────────────────────────────────────────────────
 def format_chat_template(example: dict, tokenizer) -> str:
     """
-    Qwen3 chat template'ine göre formatlar:
+    Qwen2.5 chat template'ine göre formatlar:
     
     <|im_start|>system
     You are an expert aerospace engineering tutor. Answer questions about
@@ -323,7 +323,7 @@ def preprocess_dataset(dataset: list[dict], tokenizer, max_length: int, split_ra
 # ──────────────────────────────────────────────────────────
 def load_model_and_tokenizer(config: TrainingConfig):
     """
-    Qwen3 modelini 4-bit QLoRA için yükler.
+    Qwen2.5 modelini 4-bit QLoRA için yükler.
     """
     import torch
     from transformers import (
@@ -341,7 +341,7 @@ def load_model_and_tokenizer(config: TrainingConfig):
         use_fast=True,
     )
 
-    # Padding token ayarla (Qwen3'te genelde eos_token_id kullanılır)
+    # Padding token ayarla (Qwen2.5'te genelde eos_token_id kullanılır)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -415,7 +415,7 @@ def load_model_and_tokenizer(config: TrainingConfig):
 # ──────────────────────────────────────────────────────────
 def setup_lora(model, config: TrainingConfig):
     """
-    Qwen3'e LoRA adapter'ı ekler.
+    Qwen2.5'e LoRA adapter'ı ekler.
     """
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
@@ -485,7 +485,7 @@ def train(config: TrainingConfig):
     dataset_raw = load_qa_dataset_jsonl(config.data_file)
     log.info(f"   Toplam: {len(dataset_raw)} QA çifti")
     if len(dataset_raw) < 500:
-        log.warning(f"   ⚠ En az 500 örnek önerilir. Mevcut: {len(dataset_raw)} — lora1.py ile artırın")
+        log.warning(f"   ⚠ En az 500 örnek önerilir. Mevcut: {len(dataset_raw)}")
 
     # 2. Model + tokenizer
     model, tokenizer = load_model_and_tokenizer(config)
@@ -712,7 +712,7 @@ def merge_and_save(config: TrainingConfig, adapter_path: str, output_path: str):
 # ──────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
-        description="Qwen3:1.7B'yi LoRA ile fine-tune et."
+        description="Qwen2.5:1.5B'yi LoRA ile fine-tune et."
     )
 
     # Training
@@ -725,7 +725,7 @@ def main():
     parser.add_argument("--max_seq_length", type=int, default=2048)
 
     # Model
-    parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-1.7B")
+    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--use_4bit", action="store_true", default=True)
     parser.add_argument("--no_4bit", dest="use_4bit", action="store_false")
 

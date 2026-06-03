@@ -11,9 +11,13 @@ dependencies = [
     "pymupdf>=1.27.2.3",
     "python-dotenv>=1.2.2",
     "surya-ocr>=0.11.0",
-    "transformers<4.50",
+    "transformers>=4.45",
     "torch",
-    "torchvision",
+    "accelerate>=0.26",
+    "peft>=0.9",
+    "bitsandbytes>=0.42",
+    "trl>=0.8",
+    "datasets>=2.16",
 ]
 
 [[tool.uv.index]]

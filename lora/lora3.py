@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-lora3.py — Eğitilmiş LoRA modeline questions klasöründeki soruları
-tek tek gönderir ve cevapları answers-lora/ klasörüne a1.json, a2.json şeklinde kaydeder.
+lora3.py — Eğitilmiş LoRA modeline soruları tek tek gönderir
+ve cevapları answers-lora/ klasörüne kaydeder.
 
-Her JSON: { "question": "...", "answer": "..." }
+Sorular iki kaynaktan gelebilir:
+  1) questions/*.md dosyaları (varsayılan)
+  2) dataset/dataset.jsonl (--dataset ile)
+
+Her JSON çıktı: { "question": "...", "answer": "..." }
 """
 
 import argparse
@@ -28,10 +32,12 @@ log = logging.getLogger("lora3")
 # ──────────────────────────────────────────────────────────
 @dataclass
 class Config:
-    model_name: str = "Qwen/Qwen3-1.7B"
+    model_name: str = "Qwen/Qwen2.5-1.5B-Instruct"
     adapter_dir: Optional[Path] = Path("lora/lora-out/final")
     questions_dir: Path = Path("questions")
     answers_dir: Path = Path("answers-lora")
+    dataset_file: Optional[Path] = None       # dataset.jsonl yolu (--dataset ile)
+    eval_mode: bool = False                    # --eval: cevapları ground truth ile karşılaştır
     max_new_tokens: int = 512
     temperature: float = 0.7
     top_p: float = 0.9
@@ -103,10 +109,48 @@ def load_model_and_tokenizer(cfg: Config):
 
 
 # ──────────────────────────────────────────────────────────
-# SORU OKUMA
+# SORU OKUMA (questions/ klasörü veya dataset.jsonl)
 # ──────────────────────────────────────────────────────────
 def load_questions(cfg: Config) -> list[dict]:
-    """questions/ klasöründeki .md dosyalarını sıralı okur."""
+    """Soruları questions/ klasöründeki .md'lerden veya dataset.jsonl'den okur."""
+    import json
+
+    # ── Dataset modu (--dataset) ──
+    if cfg.dataset_file:
+        if not cfg.dataset_file.exists():
+            log.error(f"❌ {cfg.dataset_file} bulunamadı.")
+            sys.exit(1)
+
+        questions = []
+        with open(cfg.dataset_file, encoding="utf-8") as f:
+            for line_no, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                    if item.get("question", "").strip():
+                        questions.append({
+                            "index": len(questions) + 1,
+                            "filename": f"q{len(questions) + 1}",
+                            "content": item["question"].strip(),
+                            "ground_truth": item.get("answer", ""),
+                            "chapter_title": item.get("chapter_title", ""),
+                        })
+                except json.JSONDecodeError:
+                    continue
+
+        if not questions:
+            log.error(f"❌ {cfg.dataset_file}'de geçerli soru bulunamadı.")
+            sys.exit(1)
+
+        if cfg.limit > 0:
+            questions = questions[:cfg.limit]
+
+        log.info(f"📄 {len(questions)} soru yüklendi (kaynak: {cfg.dataset_file.name})")
+        return questions
+
+    # ── Normal mod (questions/*.md) ──
     if not cfg.questions_dir.exists():
         log.error(f"❌ {cfg.questions_dir}/ bulunamadı.")
         sys.exit(1)
@@ -130,9 +174,6 @@ def load_questions(cfg: Config) -> list[dict]:
         questions = questions[:cfg.limit]
 
     log.info(f"📄 {len(questions)} soru yüklendi")
-    for q in questions:
-        log.info(f"   [{q['index']}] {q['filename']}: {q['content'][:70]}...")
-
     return questions
 
 
@@ -170,13 +211,16 @@ def generate_answer(model, tokenizer, question: str, device: str, cfg: Config) -
 # ──────────────────────────────────────────────────────────
 # CEVAP KAYDETME
 # ──────────────────────────────────────────────────────────
-def save_answer(answer: str, index: int, question: str, cfg: Config) -> Path:
+def save_answer(answer: str, index: int, question: str, cfg: Config, meta: Optional[dict] = None) -> Path:
     """answers-lora/a{index}.json olarak kaydeder."""
     import json
     cfg.answers_dir.mkdir(parents=True, exist_ok=True)
     fp = cfg.answers_dir / f"a{index}.json"
+    record = {"question": question, "answer": answer}
+    if meta:
+        record.update(meta)
     with open(fp, "w", encoding="utf-8") as f:
-        json.dump({"question": question, "answer": answer}, f, ensure_ascii=False, indent=2)
+        json.dump(record, f, ensure_ascii=False, indent=2)
     return fp
 
 
@@ -187,10 +231,14 @@ def main():
     parser = argparse.ArgumentParser(description="LoRA model ile soru-cevap.")
     parser.add_argument("--limit", "-l", type=int, default=0)
     parser.add_argument("--question", "-q", type=str, default=None, help="Tek soru")
+    parser.add_argument("--dataset", "-d", type=str, default=None,
+                        help="dataset.jsonl dosyasından soruları oku")
+    parser.add_argument("--eval", action="store_true",
+                        help="--dataset ile: cevapları ground truth ile karşılaştır")
     parser.add_argument("--adapter", "-a", type=str, default=None)
     parser.add_argument("--questions_dir", type=str, default="questions")
     parser.add_argument("--answers_dir", type=str, default="answers-lora")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen3-1.7B")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--max_tokens", type=int, default=512)
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--no_lora", action="store_true")
@@ -202,6 +250,8 @@ def main():
         temperature=args.temperature,
         questions_dir=Path(args.questions_dir),
         answers_dir=Path(args.answers_dir),
+        dataset_file=Path(args.dataset) if args.dataset else None,
+        eval_mode=args.eval,
         limit=args.limit,
         single_question=args.question,
     )
@@ -233,18 +283,43 @@ def main():
     log.info(f"\n{'='*60}")
     log.info(f"📝 CEVAPLAMA BAŞLIYOR ({len(questions)} soru)")
     log.info(f"   Çıktı: {cfg.answers_dir}/")
+    if cfg.eval_mode:
+        log.info(f"   Mod:  EVAL (ground truth ile karşılaştırma)")
     log.info(f"{'='*60}\n")
 
     success = 0
+    eval_results = []
     for q in questions:
         idx = q["index"]
-        log.info(f"[{idx}/{len(questions)}] {q['filename']}")
+        label = q.get("chapter_title", "") or q["filename"]
+        log.info(f"[{idx}/{len(questions)}] {label}")
 
         t0 = time.time()
         try:
             answer = generate_answer(model, tokenizer, q["content"], device, cfg)
             elapsed = time.time() - t0
-            fp = save_answer(answer, idx, q["content"], cfg)
+
+            meta = None
+            if "ground_truth" in q:
+                meta = {"ground_truth": q["ground_truth"]}
+            if q.get("chapter_title"):
+                if meta is None:
+                    meta = {}
+                meta["chapter_title"] = q["chapter_title"]
+
+            fp = save_answer(answer, idx, q["content"], cfg, meta)
+
+            # Eval modu: karşılaştırma
+            if cfg.eval_mode and "ground_truth" in q:
+                gt = q["ground_truth"]
+                eval_results.append({
+                    "index": idx,
+                    "question": q["content"][:100],
+                    "generated_len": len(answer),
+                    "ground_truth_len": len(gt),
+                    "chapter_title": q.get("chapter_title", ""),
+                })
+
             log.info(f"   ✅ {len(answer)} karakter ({elapsed:.1f}s) -> {fp.name}")
             success += 1
         except Exception as e:
@@ -253,6 +328,24 @@ def main():
 
         if device == "cpu":
             time.sleep(0.3)
+
+    # Eval raporu
+    if cfg.eval_mode and eval_results:
+        log.info(f"\n{'='*60}")
+        log.info(f"📊 EVAL RAPORU")
+        log.info(f"{'='*60}")
+        total_gt = sum(r["ground_truth_len"] for r in eval_results)
+        total_gen = sum(r["generated_len"] for r in eval_results)
+        log.info(f"   Soru sayısı:        {len(eval_results)}")
+        log.info(f"   Ort. cevap uzunluğu: {total_gen // len(eval_results)} karakter")
+        log.info(f"   Ort. GT  uzunluğu:   {total_gt // len(eval_results)} karakter")
+        log.info(f"   Toplam generated:    {total_gen}  vs  GT: {total_gt}")
+        # JSON raporu kaydet
+        import json
+        report_path = cfg.answers_dir / "eval_report.json"
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(eval_results, f, ensure_ascii=False, indent=2)
+        log.info(f"   Rapor kaydedildi:    {report_path}")
 
     log.info(f"\n{'='*60}")
     log.info(f"📊 RAPOR: {success}/{len(questions)} başarılı")
