@@ -83,10 +83,12 @@ def convert_pdf_to_markdown(pdf_path: Path, converter) -> tuple[str, dict]:
     rendered = converter(str(pdf_path))
     
     md_content = rendered.markdown
-    resources = rendered.resources  # {filename: bytes}
+    # Marker API değişti: resources → images (yeni sürümlerde)
+    resources = getattr(rendered, "resources", None) or getattr(rendered, "images", {})
     
     print(f"         Markdown: {len(md_content)} karakter")
-    print(f"         Resources (görsel/table): {len(resources)} adet")
+    if resources:
+        print(f"         Resources (görsel/table): {len(resources)} adet")
     
     return md_content, resources
 
