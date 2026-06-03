@@ -19,10 +19,11 @@ Kullanım:
             ...
 
 Mantık:
-    - ## (level 2) başlıkları chunk sınırıdır
-    - Her ## başlığı -> ayrı bir .md dosyası
-    - ###, #### vb. alt başlıklar -> üst ## dosyasının içinde kalır
+    - X.Y formatındaki numaralı başlıklar chunk sınırıdır (başlık seviyesinden bağımsız)
+    - Her X.Y başlığı -> ayrı bir .md dosyası
+    - X.Y.Z gibi alt başlıklar -> üst X.Y dosyasının içinde kalır
     - Dosya adı: {chapter}-{bölüm_no}.md  (örn: 1-1.md, 1-2.md)
+    - Numaralı başlık yoksa fallback: ## (level 2) başlıkları kullanılır
 """
 
 import argparse
@@ -46,18 +47,19 @@ DEBUG = False
 # ============================================================
 def parse_chapter_markdown(md_content: str) -> list[dict]:
     """
-    Markdown içeriğini ## (level 2) başlıklarından böler.
+    Markdown içeriğini X.Y şeklinde numaralı başlıklara göre böler.
+    Başlık seviyesinden (#, ##, ###, ####) bağımsız olarak çalışır.
     
     Her chunk şu yapıda:
     {
-        "heading": "## 1.1 Inherent Stability",   # başlık satırı
-        "section_num": "1",                         # bölüm numarası (örn: 1)
-        "content": "başlık + içerik...",             # chunk'ın tüm içeriği
-        "is_intro": False,                           # giriş kısmı mı?
+        "heading": "#### **1.1 Inherent Stability**",   # başlık satırı
+        "section_num": "1",                               # bölüm numarası (örn: 1)
+        "content": "başlık + içerik...",                   # chunk'ın tüm içeriği
+        "is_intro": False,                                 # giriş kısmı mı?
     }
     
-    Eğer başlık numarasızsa (örn: "## Introduction"), section_num=None olur
-    ve sırayla numara verilir.
+    Eğer chapter'da hiç X.Y formatında başlık yoksa (örn: chapter 24),
+    fallback olarak ## (level 2) başlıklarına göre böler.
     """
     lines = md_content.split("\n")
     
@@ -66,7 +68,7 @@ def parse_chapter_markdown(md_content: str) -> list[dict]:
     current_heading = None
     current_section_num = None
     is_intro = True
-    section_counter = 1  # numarasız başlıklar için sayaç
+    section_counter = 1  # fallback için sayaç
     
     # Chapter numarasını birden fazla pattern'le ara
     chapter_num = None
@@ -89,9 +91,43 @@ def parse_chapter_markdown(md_content: str) -> list[dict]:
                 chapter_num = m.group(1)
                 break
     
+    # X.Y formatında başlık olup olmadığını kontrol et (fallback kararı için)
+    has_numbered_sections = False
     for line in lines:
-        # Level 2 başlık mı? (## ile başlayan, ### veya # ile karışmasın)
-        if re.match(r"^##\s+(?!##)", line):  # ## ama ### değil
+        if re.match(r"^(#{1,6})\s", line) and re.search(r"\b\d+\.\d+\b", line):
+            has_numbered_sections = True
+            break
+    
+    # Pattern: herhangi bir # seviyesinde, içinde X.Y numarası olan başlık
+    # Örn: "#### **9.1 Spinning**", "# **1.2 Problem of Control**"
+    # X.Y.Z gibi alt numaralar (örn: 9.5.1) -> ilk X.Y eşleşmesi kullanılır
+    numbered_heading = re.compile(r"^(#{1,6})\s+.*?\b(\d+)\.(\d+)\b")
+    # Fallback: sadece ## level 2 başlık
+    level2_heading = re.compile(r"^##\s+(?!##)")
+    
+    def is_section_boundary(line: str) -> bool:
+        """Bu satır bir chunk sınırı mı?"""
+        if has_numbered_sections:
+            return bool(numbered_heading.match(line))
+        else:
+            return bool(level2_heading.match(line))
+    
+    def extract_section_num(line: str) -> str:
+        """Başlık satırından bölüm numarasını çıkar."""
+        if has_numbered_sections:
+            m = numbered_heading.match(line)
+            if m:
+                return m.group(3)  # X.Y'deki Y (örn: 1.1 -> "1")
+        # Fallback
+        heading_text = line.lstrip("#").strip()
+        num_match = re.search(r"(\d+)\.(\d+)", heading_text)
+        if num_match:
+            return num_match.group(2)
+        slug = re.sub(r"[^a-zA-Z0-9]+", "_", heading_text.lower()).strip("_")[:30]
+        return slug if slug else str(section_counter)
+    
+    for line in lines:
+        if is_section_boundary(line):
             # Önceki birikmiş içeriği kaydet
             if current_lines:
                 content = "\n".join(current_lines).strip()
@@ -106,19 +142,9 @@ def parse_chapter_markdown(md_content: str) -> list[dict]:
             # Yeni başlığa başla
             current_lines = [line]
             current_heading = line
-            
-            # Başlıktan bölüm numarasını çıkar (örn: "## 1.1 Başlık" -> "1")
-            # Numarasız başlıklar için slug kullan (örn: "Conclusion" -> "conclusion")
-            heading_text = line.lstrip("#").strip()
-            num_match = re.match(r"(\d+)\.(\d+)", heading_text)
-            if num_match:
-                current_section_num = num_match.group(2)  # "1.1" -> "1"
-            else:
-                # Numarasız başlık -> ilk 2 kelimenin slug'ı
-                slug = re.sub(r"[^a-zA-Z0-9]+", "_", heading_text.lower()).strip("_")[:30]
-                current_section_num = slug if slug else str(section_counter)
+            current_section_num = extract_section_num(line)
+            if not has_numbered_sections and not re.search(r"\d+\.\d+", line):
                 section_counter += 1
-
             is_intro = False
             continue
         

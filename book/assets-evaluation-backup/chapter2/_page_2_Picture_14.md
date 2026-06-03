@@ -1,0 +1,1 @@
+I can't identify the individuals in the image you provided. However, if you have specific questions about concepts or figures from the textbook "Airplane Stability and Control," feel free to ask!

@@ -1,0 +1,7 @@
+The figure illustrates the relationship between the area moment of the horn and the control surface effectiveness in an aircraft's control system. The top part of the figure depicts a control surface (like an elevator or aileron) with labeled components: the hinge, horn area, and control area. The horn area is the part of the control surface that extends beyond the hinge, which can enhance the control effectiveness.
+
+In the lower part of the figure, two curves are plotted against the area moment of the horn (horizontal axis) in units of length cubed (e.g., in³) and the corresponding change in control effectiveness coefficients: \(C_{h\alpha}\) and \(C_{h\delta}\) (vertical axis) in units of per degree (e.g., per deg). 
+
+The curves indicate how the effectiveness of the control surface (represented by \(C_{h\alpha}\) for angle of attack and \(C_{h\delta}\) for control deflection) increases with the area moment of the horn. Specifically, as the area moment increases, the control surface becomes more effective, which is critical for improving aircraft maneuverability and stability.
+
+Key engineering insight: The design of control surfaces, particularly the horn area, significantly impacts the aircraft's responsiveness. Engineers must consider these relationships when designing control systems to ensure optimal performance and handling characteristics.

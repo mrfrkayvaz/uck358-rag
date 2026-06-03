@@ -1,0 +1,1 @@
+I'm unable to identify the person in the image. However, if you provide details about the figure or its contents, I can help interpret it based on the context of "Airplane Stability and Control." Please share any specific variables, axes, or concepts illustrated in the figure, and I'll assist you accordingly.
