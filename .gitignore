@@ -1,0 +1,39 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+
+# Generated answer directories (LoRA, RAG, GraphRAG outputs)
+answers/
+answers-lora/
+answers-rag/
+answers-graphrag/
+
+# Generated book content (stage outputs)
+book/assets/
+book/chapters/
+book/chunks/
+book/markdowns/
+
+# Generated LoRA dataset
+lora/q_a/
+
+# Generated vector stores
+rag/vector_store/
+graphrag/graph_store/
+
+# Result/output folders
+results/
+q/
+questions/
+pdf/
+
+# Marker models cache
+.marker_cache/
