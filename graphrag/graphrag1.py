@@ -98,15 +98,20 @@ def scan_chunks(chunks_dir: str, limit: int = 0) -> list[dict]:
     for ch_dir in chapter_dirs:
         chapter_no = int(ch_dir.name)
         for md_file in sorted(ch_dir.glob("*.md")):
-            stem = md_file.stem
-            if stem == f"{chapter_no}-intro":
+            stem = md_file.stem  # "1-1", "1-intro", "1-conclusion" vb.
+
+            # Dosya adı: {chapter}-{section}.md (stage3 çıktısı)
+            parts = stem.split("-", 1)
+            if len(parts) != 2 or parts[0] != str(chapter_no):
+                continue
+
+            section_id = parts[1]
+            if section_id == "intro":
                 heading_no = f"{chapter_no}.0"
+            elif section_id.isdigit():
+                heading_no = f"{chapter_no}.{section_id}"
             else:
-                m = re.match(rf"{chapter_no}-(\d+)", stem)
-                if m:
-                    heading_no = f"{chapter_no}.{m.group(1)}"
-                else:
-                    continue
+                heading_no = f"{chapter_no}.{section_id}"  # slug: conclusion, introduction vb.
 
             content = md_file.read_text(encoding="utf-8").strip()
             if not content:
@@ -126,6 +131,7 @@ def scan_chunks(chunks_dir: str, limit: int = 0) -> list[dict]:
                 "heading_no": heading_no,
                 "title": title,
                 "content": content,
+                "source_pdf": "AirplaneStabilityControl.pdf",
             })
 
     if limit > 0:

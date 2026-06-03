@@ -1,26 +1,13 @@
 #!/usr/bin/env python3
 """
 graphrag3.py — GraphRAG Pipeline ile questions/ klasöründeki soruları cevaplar.
-Cevapları answers-graphrag/ klasörüne a1.md, a2.md şeklinde kaydeder.
+Cevapları answers-graphrag/ klasörüne a1.json, a2.json şeklinde kaydeder.
 
-GraphRAG: vektör araması + bilgi grafi traversal (hibrit retrieval)
-
-Kullanım:
-    uv run python3 graphrag/graphrag3.py                           # tüm sorular
-    uv run python3 graphrag/graphrag3.py --limit 5                 # ilk 5 soru
-    uv run python3 graphrag/graphrag3.py --depth 3                 # graf derinliği 3
-    uv run python3 graphrag/graphrag3.py --llm openrouter          # OpenRouter ile
-    uv run python3 graphrag/graphrag3.py --question "dihedral?"    # tek soru
-
-Gereksinimler:
-    - graphrag/graph_store/ altında bilgi grafi (graphrag1.py ile oluştur)
-    - questions/ klasöründe .md dosyaları
-
-Çıktı:
-    answers-graphrag/
-        a1.md       <!-- SORU: ... -->\n(cevap metni + grafik kaynakları)
-        a2.md
-        ...
+Her JSON:
+    - answer: cevap metni
+    - source_pdf: kaynak PDF adı
+    - graph_entities: [{name, score, description, chunk_paths}, ...]
+    - relationships: [{source, target, type}, ...]
 """
 
 import argparse
@@ -341,11 +328,10 @@ def answer_one(G, entity_names, entity_embeddings, chunk_entity_map, embed_model
     seed, graph_ents = graph_traversal(embed_model, question, entity_names, entity_embeddings, G, cfg)
 
     if not graph_ents:
-        return "*(Bilgi grafiğinde ilgili kavram bulunamadı.)*"
+        return "*(Bilgi grafiğinde ilgili kavram bulunamadı.)*", {"graph_entities": [], "relationships": []}
 
     log.info(f"   📊 {len(graph_ents)} entity (seed: {len(seed)})")
 
-    # Top 5 entity göster
     for e in graph_ents[:5]:
         log.info(f"      {e['name']:30s} skor={e['score']:.3f}")
 
@@ -356,16 +342,64 @@ def answer_one(G, entity_names, entity_embeddings, chunk_entity_map, embed_model
         srcs = "\n".join(f"- 🧠 {e['name']} (skor: {e['score']:.2f})" for e in graph_ents[:5])
         answer += f"\n\n---\n**GraphRAG Kaynaklar:**\n{srcs}"
 
-    return answer
+    # Entity + relationship verilerini derle
+    entities_data = []
+    for e in graph_ents[:10]:
+        name = e["name"]
+        ent = {
+            "name": name,
+            "score": e["score"],
+            "description": G.nodes[name].get("description", "") if name in G else "",
+            "frequency": G.nodes[name].get("frequency", 1) if name in G else 1,
+        }
+        # Chunk referansları
+        chunk_refs = []
+        if chunk_entity_map:
+            for cp, ents in chunk_entity_map.items():
+                if name in ents:
+                    chunk_refs.append(cp)
+        ent["chunk_paths"] = chunk_refs[:3]
+        entities_data.append(ent)
+
+    # İlişkiler
+    relationships_data = []
+    seen = set()
+    for e in graph_ents[:8]:
+        if e["name"] not in G:
+            continue
+        for nb in G.neighbors(e["name"]):
+            key = tuple(sorted([e["name"], nb]))
+            if key in seen:
+                continue
+            seen.add(key)
+            edge = G[e["name"]][nb]
+            relationships_data.append({
+                "source": e["name"],
+                "target": nb,
+                "type": edge.get("type", "related_to"),
+            })
+            if len(relationships_data) >= 8:
+                break
+
+    result_data = {
+        "answer": answer,
+        "source_pdf": "AirplaneStabilityControl.pdf",
+        "graph_entities": entities_data,
+        "relationships": relationships_data,
+    }
+
+    return answer, result_data
 
 
 # ──────────────────────────────────────────────────────────
 # KAYDET
 # ──────────────────────────────────────────────────────────
-def save_answer(answer: str, index: int, question: str, cfg: Config) -> Path:
+def save_answer(result_data: dict, index: int, cfg: Config) -> Path:
+    """GraphRAG cevabını + entity verisini .json olarak kaydeder."""
     cfg.answers_dir.mkdir(parents=True, exist_ok=True)
-    fp = cfg.answers_dir / f"a{index}.md"
-    fp.write_text(f"<!-- SORU: {question.strip()} -->\n\n{answer}\n", encoding="utf-8")
+    fp = cfg.answers_dir / f"a{index}.json"
+    with open(fp, "w", encoding="utf-8") as f:
+        json.dump(result_data, f, ensure_ascii=False, indent=2)
     return fp
 
 
@@ -408,7 +442,7 @@ def main():
     # ── Tek soru ──
     if cfg.single_question:
         log.info(f"❓ {cfg.single_question[:80]}...")
-        ans = answer_one(G, entity_names, entity_embeddings, chunk_entity_map,
+        ans, _ = answer_one(G, entity_names, entity_embeddings, chunk_entity_map,
                          embed_model, cfg.single_question, cfg)
         print(f"\n{'='*60}\n{ans}\n{'='*60}")
         return
@@ -431,15 +465,16 @@ def main():
 
         try:
             t0 = time.time()
-            ans = answer_one(G, entity_names, entity_embeddings, chunk_entity_map,
+            ans, result_data = answer_one(G, entity_names, entity_embeddings, chunk_entity_map,
                              embed_model, q["content"], cfg)
             elapsed = time.time() - t0
-            fp = save_answer(ans, idx, q["content"], cfg)
+            result_data["question"] = q["content"]
+            fp = save_answer(result_data, idx, cfg)
             log.info(f"   ✅ {len(ans)} kar ({elapsed:.1f}s) → {fp.name}")
             success += 1
         except Exception as e:
             log.error(f"   ❌ {e}")
-            save_answer(f"[HATA] {e}", idx, q["content"], cfg)
+            save_answer({"question": q["content"], "answer": f"[HATA] {e}", "source_pdf": "", "graph_entities": [], "relationships": []}, idx, cfg)
 
     log.info(f"\n{'='*60}")
     log.info(f"📊 {success}/{len(questions)} başarılı → {cfg.answers_dir}/")

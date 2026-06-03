@@ -43,11 +43,12 @@ log = logging.getLogger("rag1")
 class IndexConfig:
     chunks_dir: str = "book/chunks"
     output_dir: str = "rag/vector_store"
-    embedding_model: str = "all-MiniLM-L6-v2"  # sentence-transformers modeli
-    embedding_device: str = "auto"             # auto / cuda / cpu
-    batch_size: int = 32                       # embedding batch boyutu
-    force_rebuild: bool = False                # varsa sil yeniden yap
-    normalize_embeddings: bool = True          # cosine similarity için normalize
+    source_pdf: str = "AirplaneStabilityControl.pdf"  # kaynak PDF adı
+    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_device: str = "auto"
+    batch_size: int = 32
+    force_rebuild: bool = False
+    normalize_embeddings: bool = True
 
 
 # ──────────────────────────────────────────────────────────
@@ -82,20 +83,23 @@ def scan_chunks(chunks_dir: str) -> list[dict]:
     for ch_dir in chapter_dirs:
         chapter_no = int(ch_dir.name)
         for md_file in sorted(ch_dir.glob("*.md")):
-            stem = md_file.stem  # "1-1" veya "1-intro"
+            stem = md_file.stem  # "1-1", "1-intro", "1-conclusion", "1-introduction"
 
-            # heading_no çıkar
-            if stem == f"{chapter_no}-intro":
+            # Dosya adı: {chapter}-{section}.md
+            parts = stem.split("-", 1)
+            if len(parts) != 2 or parts[0] != str(chapter_no):
+                log.warning(f"⚠ {md_file.name} tanınmadı (pattern: chapter-section.md), atlanıyor.")
+                continue
+
+            section_id = parts[1]  # "1", "intro", "conclusion", vb.
+
+            if section_id == "intro":
                 heading_no = f"{chapter_no}.0"
-                sort_key = (chapter_no, 0.0)
+            elif section_id.isdigit():
+                heading_no = f"{chapter_no}.{section_id}"
             else:
-                m = re.match(rf"{chapter_no}-(\d+)", stem)
-                if m:
-                    heading_no = f"{chapter_no}.{m.group(1)}"
-                    sort_key = (chapter_no, float(m.group(1)))
-                else:
-                    log.warning(f"⚠ {md_file.name} tanınmadı, atlanıyor.")
-                    continue
+                # slug tabanlı (conclusion, introduction, ...)
+                heading_no = f"{chapter_no}.{section_id}"
 
             content = md_file.read_text(encoding="utf-8").strip()
             if not content:
@@ -115,8 +119,8 @@ def scan_chunks(chunks_dir: str) -> list[dict]:
                 "heading_no": heading_no,
                 "title": title,
                 "content": content,
-                "sort_key": sort_key,
                 "char_count": len(content),
+                "source_pdf": source_pdf,
             })
 
     log.info(f"📄 Toplam chunk: {len(chunks)}")
@@ -240,6 +244,7 @@ def save_index(index, chunks: list[dict], config: IndexConfig):
             "title": c["title"],
             "content": c["content"],
             "char_count": c["char_count"],
+            "source_pdf": c.get("source_pdf", ""),
         })
 
     meta_path = output_dir / "metadata.json"
@@ -334,7 +339,7 @@ def main():
     # 1. Chunk'ları tara
     log.info("=" * 60)
     log.info("🔍 CHUNK TARANIYOR")
-    chunks = scan_chunks(config.chunks_dir)
+    chunks = scan_chunks(config.chunks_dir, config.source_pdf)
 
     # 2. Embed + Index
     log.info("")

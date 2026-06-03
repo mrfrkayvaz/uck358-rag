@@ -1,24 +1,12 @@
 #!/usr/bin/env python3
 """
 rag3.py — RAG Pipeline ile questions/ klasöründeki soruları cevaplar.
-Cevapları answers-rag/ klasörüne a1.md, a2.md şeklinde kaydeder.
+Cevapları answers-rag/ klasörüne a1.json, a2.json şeklinde kaydeder.
 
-Kullanım:
-    uv run python3 rag/rag3.py                                # tüm sorular
-    uv run python3 rag/rag3.py --limit 5                      # ilk 5 soru
-    uv run python3 rag/rag3.py --top_k 10                     # 10 chunk ile
-    uv run python3 rag/rag3.py --llm openrouter               # OpenRouter ile
-    uv run python3 rag/rag3.py --question "What is dihedral?" # tek soru
-
-Gereksinimler:
-    - rag/vector_store/ altında FAISS index + metadata (rag1.py ile oluştur)
-    - questions/ klasöründe .md dosyaları (q1.md, q2.md, ...)
-
-Çıktı:
-    answers-rag/
-        a1.md       <!-- SORU: ... -->\n(cevap metni + kaynaklar)
-        a2.md
-        ...
+Her JSON:
+    - answer: cevap metni
+    - source_pdf: kaynak PDF adı
+    - retrieved_chunks: [{content, chapter_no, heading_no, score, path}, ...]
 """
 
 import argparse
@@ -251,40 +239,57 @@ def get_llm_answer(context: str, question: str, cfg: Config) -> str:
 # ──────────────────────────────────────────────────────────
 # RAG CEVAPLAMA (tek soru)
 # ──────────────────────────────────────────────────────────
-def answer_one(model_or_index, metadata, embed_model, question: str, cfg: Config) -> str:
-    """RAG pipeline: embed → retrieve → context → llm."""
-    # Retrieve
+def answer_one(model_or_index, metadata, embed_model, question: str, cfg: Config) -> tuple[str, dict]:
+    """RAG pipeline: embed → retrieve → context → llm.
+    Returns: (answer_text, result_dict_with_chunks)"""
     results = retrieve(model_or_index, metadata, embed_model, question, cfg)
 
     if not results:
-        return "*(İlgili bir bağlam bulunamadı.)*"
+        return "*(İlgili bir bağlam bulunamadı.)*", {"retrieved_chunks": []}
 
     log.info(f"   📡 {len(results)} chunk (top score: {results[0]['score']:.3f})")
 
-    # Context
     context = build_context(results, cfg)
-
-    # LLM
     answer = get_llm_answer(context, question, cfg)
 
     # Kaynak ekle
     if cfg.show_sources and results:
-        srcs = "\n".join(
-            f"- Ch.{r['chapter_no']}/{r['heading_no']} (skor: {r['score']:.2f})"
-            for r in results[:3]
-        )
+        srcs = "\n".join(f"- Ch.{r['chapter_no']}/{r['heading_no']} (skor: {r['score']:.2f})" for r in results[:3])
         answer += f"\n\n---\n**Kaynaklar:**\n{srcs}"
 
-    return answer
+    # Chunk verilerini derle
+    meta_by_key = {(m["chapter_no"], m["heading_no"]): m for m in metadata}
+    retrieved_chunks = []
+    for r in results:
+        key = (r["chapter_no"], r["heading_no"])
+        m = meta_by_key.get(key, {})
+        retrieved_chunks.append({
+            "content": r["content"],
+            "chapter_no": r["chapter_no"],
+            "heading_no": r["heading_no"],
+            "score": r["score"],
+            "path": m.get("path", ""),
+            "source_pdf": m.get("source_pdf", "AirplaneStabilityControl.pdf"),
+        })
+
+    result_data = {
+        "answer": answer,
+        "source_pdf": "AirplaneStabilityControl.pdf",
+        "retrieved_chunks": retrieved_chunks,
+    }
+
+    return answer, result_data
 
 
 # ──────────────────────────────────────────────────────────
 # KAYDETME
 # ──────────────────────────────────────────────────────────
-def save_answer(answer: str, index: int, question: str, cfg: Config) -> Path:
+def save_answer(result_data: dict, index: int, cfg: Config) -> Path:
+    """RAG cevabını + chunk verisini .json olarak kaydeder."""
     cfg.answers_dir.mkdir(parents=True, exist_ok=True)
-    fp = cfg.answers_dir / f"a{index}.md"
-    fp.write_text(f"<!-- SORU: {question.strip()} -->\n\n{answer}\n", encoding="utf-8")
+    fp = cfg.answers_dir / f"a{index}.json"
+    with open(fp, "w", encoding="utf-8") as f:
+        json.dump(result_data, f, ensure_ascii=False, indent=2)
     return fp
 
 
@@ -325,7 +330,7 @@ def main():
     # ── Tek soru ──
     if cfg.single_question:
         log.info(f"❓ {cfg.single_question[:80]}...")
-        ans = answer_one(index, metadata, embed_model, cfg.single_question, cfg)
+        ans, _ = answer_one(index, metadata, embed_model, cfg.single_question, cfg)
         print(f"\n{'='*60}\n{ans}\n{'='*60}")
         return
 
@@ -349,15 +354,15 @@ def main():
 
         try:
             t0 = time.time()
-            ans = answer_one(index, metadata, embed_model, q["content"], cfg)
+            ans, result_data = answer_one(index, metadata, embed_model, q["content"], cfg)
             elapsed = time.time() - t0
-
-            fp = save_answer(ans, idx, q["content"], cfg)
+            result_data["question"] = q["content"]
+            fp = save_answer(result_data, idx, cfg)
             log.info(f"   ✅ {len(ans)} karakter ({elapsed:.1f}s) → {fp.name}")
             success += 1
         except Exception as e:
             log.error(f"   ❌ {e}")
-            save_answer(f"[HATA] {e}", idx, q["content"], cfg)
+            save_answer({"question": q["content"], "answer": f"[HATA] {e}", "source_pdf": "", "retrieved_chunks": []}, idx, cfg)
 
     log.info(f"\n{'='*60}")
     log.info(f"📊 {success}/{len(questions)} başarılı → {cfg.answers_dir}/")

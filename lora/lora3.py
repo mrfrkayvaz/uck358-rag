@@ -1,23 +1,9 @@
 #!/usr/bin/env python3
 """
 lora3.py — Eğitilmiş LoRA modeline questions klasöründeki soruları
-tek tek gönderir ve cevapları answers-lora/ klasörüne a1.md, a2.md şeklinde kaydeder.
+tek tek gönderir ve cevapları answers-lora/ klasörüne a1.json, a2.json şeklinde kaydeder.
 
-Kullanım:
-    uv run python3 lora/lora3.py                                # tüm sorular
-    uv run python3 lora/lora3.py --limit 5                      # ilk 5 soru
-    uv run python3 lora/lora3.py --question "What is dihedral?" # tek soru
-    uv run python3 lora/lora3.py --adapter lora/lora-out/final  # farklı adapter
-
-Gereksinimler:
-    - Eğitilmiş LoRA adapter'ı (varsayılan: lora/lora-out/final/)
-    - questions/ klasöründe .md dosyaları (q1.md, q2.md, ...)
-
-Çıktı:
-    answers-lora/
-        a1.md
-        a2.md
-        ...
+Her JSON: { "question": "...", "answer": "..." }
 """
 
 import argparse
@@ -185,11 +171,12 @@ def generate_answer(model, tokenizer, question: str, device: str, cfg: Config) -
 # CEVAP KAYDETME
 # ──────────────────────────────────────────────────────────
 def save_answer(answer: str, index: int, question: str, cfg: Config) -> Path:
-    """answers-lora/a{index}.md olarak kaydeder."""
+    """answers-lora/a{index}.json olarak kaydeder."""
+    import json
     cfg.answers_dir.mkdir(parents=True, exist_ok=True)
-    fp = cfg.answers_dir / f"a{index}.md"
-    content = f"<!-- SORU: {question.strip()} -->\n\n{answer}"
-    fp.write_text(content, encoding="utf-8")
+    fp = cfg.answers_dir / f"a{index}.json"
+    with open(fp, "w", encoding="utf-8") as f:
+        json.dump({"question": question, "answer": answer}, f, ensure_ascii=False, indent=2)
     return fp
 
 

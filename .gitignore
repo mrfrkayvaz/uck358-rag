@@ -25,6 +25,10 @@ book/markdowns/
 # Generated LoRA dataset
 lora/q_a/
 
+# LoRA training outputs
+lora/lora-out/
+lora/lora-merged/
+
 # Generated vector stores
 rag/vector_store/
 graphrag/graph_store/
