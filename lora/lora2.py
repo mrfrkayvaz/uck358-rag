@@ -4,7 +4,7 @@ lora2.py — Qwen3:1.7B modelini LoRA ile fine-tune eder.
 
 Veri Formatı (JSONL — Unsloth uyumlu):
     lora/q_a/qa_dataset.jsonl
-    Her satır: {"question", "answer", "chapter_no", "heading_no"}
+    Her satır: {"question", "answer", "chapter_title", "heading_title", "chunk_path"}
     - Tüm formüller $ veya $$ arasında (LaTeX)
     - Cevap uzunluğu 200-600 karakter arası
     - Dosya sonunda \n karakteri (Unsloth gereksinimi)
@@ -180,7 +180,7 @@ def load_qa_dataset_jsonl(filepath: str) -> list[dict]:
     JSONL dosyasından Q&A verisini yükler.
     Format: her satır bir JSON obje, son satırda \n karakteri.
     
-    Her örnek: { "question": ..., "answer": ..., "chapter_no": ..., "heading_no": ... }
+    Her örnek: { "question": ..., "answer": ..., "chapter_title": ..., "heading_title": ..., "chunk_path": ... }
     """
     fp = Path(filepath)
     if not fp.exists():
