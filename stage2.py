@@ -67,28 +67,19 @@ def detect_device() -> tuple[str, object]:
     return "cpu", torch.float32
 
 
-def convert_pdf_to_markdown(pdf_path: Path) -> tuple[str, dict]:
+def convert_pdf_to_markdown(pdf_path: Path, converter) -> tuple[str, dict]:
     """
     Marker kullanarak PDF'i Markdown'a çevirir.
     
     Args:
         pdf_path: Chapter PDF'inin yolu
+        converter: Önceden oluşturulmuş PdfConverter (modelleri bir kere yüklenir)
         
     Returns:
         (markdown_metni, resources_dict)
-        - markdown_metni: Dönüştürülmüş Markdown içeriği
-        - resources_dict: {dosya_adı: bytes} - görsel/table resimleri
     """
-    from marker.converters.pdf import PdfConverter
-    from marker.models import create_model_dict
-    
     print(f"  [1/4] Marker dönüşümü başlatılıyor...")
     
-    device, dtype = detect_device()
-    
-    converter = PdfConverter(
-        artifact_dict=create_model_dict(device=device, dtype=dtype),
-    )
     rendered = converter(str(pdf_path))
     
     md_content = rendered.markdown
@@ -254,9 +245,9 @@ def post_process_markdown(md_content: str) -> str:
 # ============================================================
 # 6. ANA DÖNÜŞTÜRME FONKSİYONU
 # ============================================================
-def convert_chapter(chapter_num: int):
+def convert_chapter(chapter_num: int, converter) -> bool:
     """Tek bir chapter'ı PDF'ten Markdown'a dönüştürür."""
-    
+
     pdf_path = CHAPTERS_DIR / f"chapter{chapter_num}.pdf"
     if not pdf_path.exists():
         print(f"Hata: {pdf_path} bulunamadı.")
@@ -273,8 +264,8 @@ def convert_chapter(chapter_num: int):
     print(f"{'='*60}")
     
     try:
-        # Adım 1: Marker ile PDF -> Markdown
-        md_content, resources = convert_pdf_to_markdown(pdf_path)
+        # Adım 1: Marker ile PDF -> Markdown (converter zaten yüklü)
+        md_content, resources = convert_pdf_to_markdown(pdf_path, converter)
         
         # Adım 2: Resource'ları (görsel/table) assets'e kaydet
         resource_mapping = save_resources(resources, chapter_num)
@@ -408,10 +399,20 @@ def main():
             sys.exit(1)
     
     print(f"Dönüştürülecek chapter'lar: {chapter_numbers}")
-    
+
+    # 🔥 Modelleri BİR KERE yükle (her chapter'da tekrar yüklenmez)
+    from marker.converters.pdf import PdfConverter
+    from marker.models import create_model_dict
+    print(f"\n📦 Marker modelleri yükleniyor (bir kere)...")
+    device, dtype = detect_device()
+    converter = PdfConverter(
+        artifact_dict=create_model_dict(device=device, dtype=dtype),
+    )
+    print(f"✅ Modeller yüklendi — {len(chapter_numbers)} chapter işlenecek\n")
+
     success = True
     for ch in chapter_numbers:
-        if not convert_chapter(ch):
+        if not convert_chapter(ch, converter):
             success = False
     
     print(f"\n{'='*60}")
