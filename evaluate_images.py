@@ -31,8 +31,8 @@ ASSETS_DIR = BASE_DIR / "book" / "assets"
 OUTPUT_DIR = BASE_DIR / "book" / "assets-evaluation"
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = "google/gemini-2.0-flash-001"  # derin öğrenme + görüntü destekli
-# Alternatif: "anthropic/claude-3-haiku", "openai/gpt-4o-mini"
+# Gemini Flash — görüntü destekler, OpenRouter'da hızlı
+MODEL = "openai/gpt-4o-mini"
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
@@ -51,17 +51,34 @@ SYSTEM_PROMPT = (
 
 
 # ──────────────────────────────────────────────────────────
-# .env OKUMA
+# .env OKUMA (dotenv veya manuel)
 # ──────────────────────────────────────────────────────────
 def load_api_key() -> str:
     env_path = BASE_DIR / ".env"
+
+    # Önce python-dotenv dene
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_path)
+        import os
+        key = os.getenv("OPENROUTER_API_KEY", "")
+        if key:
+            return key.strip().strip("\"'")
+    except ImportError:
+        pass
+
+    # Manuel fallback
     if not env_path.exists():
         print("HATA: .env bulunamadı.")
         sys.exit(1)
     with open(env_path) as f:
         for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
             if line.startswith("OPENROUTER_API_KEY"):
-                return line.split("=", 1)[1].strip().strip("\"'")
+                key = line.split("=", 1)[1].strip().strip("\"'")
+                return key
     print("HATA: OPENROUTER_API_KEY .env'de yok.")
     sys.exit(1)
 
@@ -128,6 +145,8 @@ def call_vision_model(api_key: str, image_path: Path, retry: int = 0) -> str | N
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/uck358-rag",
+        "X-Title": "UCK358 Final Project",
     }
 
     req = Request(OPENROUTER_URL, data=payload, headers=headers, method="POST")
